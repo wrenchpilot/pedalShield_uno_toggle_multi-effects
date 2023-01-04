@@ -52,18 +52,18 @@ const char* const sinewave[] PROGMEM = {
 unsigned int location = 0;  // incoming data buffer pointer
 
 //effects variables:
-int vol_variable = 32767;
-int speed = 20;                  // tremolo speed
-unsigned int fractional = 0x00;  // fractional sample position
-int data_buffer;                 // temporary data storage to give a 1 sample buffer
-int dist_variable = 10;          // octaver
+int vol_variable = 32768;
+unsigned int speed = 20;          // tremolo speed
+unsigned int fractional = 0x00;   // fractional sample position
+unsigned int dist_variable = 10;  // octaver
 
 //other variables
 const int max_effects = 3;
+int data_buffer;  // temporary data storage to give a 1 sample buffer
 int input;
-int read_counter = 0;
-int ocr_counter = 0;
-int effect = 1;  // let's start at 1
+unsigned int read_counter = 0;
+unsigned int ocr_counter = 0;
+unsigned int effect = 1;  // let's start at 1
 byte ADC_low, ADC_high;
 
 void setup() {
@@ -121,11 +121,11 @@ ISR(TIMER1_CAPT_vect) {
       if (read_counter == 100) {
         read_counter = 0;
         if (!digitalRead(PUSHBUTTON_2)) {
-          if (vol_variable < 32768) vol_variable = vol_variable + 100;  //increase the volume
+          if (vol_variable < 32768) vol_variable = vol_variable + 1;  //increase the volume
           digitalWrite(LED, LOW);                                       //blinks the led
         }
         if (!digitalRead(PUSHBUTTON_1)) {
-          if (vol_variable > 0) vol_variable = vol_variable - 100;  //decrease volume
+          if (vol_variable > 0) vol_variable = vol_variable - 1;  //decrease volume
           digitalWrite(LED, LOW);                                   //blinks the led
         }
       }
