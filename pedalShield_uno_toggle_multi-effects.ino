@@ -3,17 +3,14 @@
 * https://github.com/wrenchpilot
 * Multiple effects for pedalShieldUno using debounced toggle switch to 
 * cycle through defined effects. Double flick the toggle to change effects.
-* BANK 1: Clean w/Volume Control
-* BANK 2: Daft Punk Octaver
-* BANK 3: Better Tremolo
-*/
+* BANK 1: Booster
+* BANK 2: Bitcrusher
+* BANK 3: Daft Punk Octaver
+* BANK 4: Better Tremello
 
-/**
 * CC-by-www.Electrosmash.com
 * Based on OpenMusicLabs previous works.
-*/
 
-/**
 * Better Tremolo based on the stomp_tremolo.pde from openmusiclabs.com
 * This program does a tremolo effect.  It uses a sinewave stored
 * in program memory to modulate the signal.  The rate at which
@@ -22,22 +19,12 @@
 * https://www.electrosmash.com/forum/pedalshield-uno/453-7-new-effects-for-the-pedalshield-uno#1718
 */
 
-/**
-* Toggle switch idea based on post #1186 
-* https://www.electrosmash.com/forum/pedalshield-uno/282-multi-effects-clean-boost-distortion-fuzz-crusher#1186
-*/
-
-// Uset Toggle library to debounce the toggle switch
-#include <Toggle.h>
-
 //defining hardware resources.
 #define LED 13
 #define FOOTSWITCH 12
-#define TOGGLE 2
+#define EFFECTSBUTTON 2
 #define PUSHBUTTON_1 A5
 #define PUSHBUTTON_2 A4
-
-Toggle myToggle(TOGGLE);  // Oh, Toggle, My Toggle
 
 //defining the output PWM parameters
 #define PWM_FREQ 0x00FF  // pwm frequency - 31.3KHz
@@ -49,27 +36,34 @@ const char* const sinewave[] PROGMEM = {
 #include "mult16x16.h"
 #include "sinetable.h"
 };
+
 unsigned int location = 0;  // incoming data buffer pointer
 
 //effects variables:
-int vol_variable = 32768;
+int vol_variable = 10000;
 unsigned int speed = 20;          // tremolo speed
 unsigned int fractional = 0x00;   // fractional sample position
 unsigned int dist_variable = 10;  // octaver
 
 //other variables
-const int max_effects = 3;
+const int max_effects = 4;
 int data_buffer;  // temporary data storage to give a 1 sample buffer
-int input;
+int input, bit_crush_variable = 0;
 unsigned int read_counter = 0;
 unsigned int ocr_counter = 0;
 unsigned int effect = 1;  // let's start at 1
 byte ADC_low, ADC_high;
 
+int buttonState;  //this variable tracks the state of the button, low if not pressed, high if pressed
+int lastButtonState = LOW;
+
+long lastDebounceTime = 0;  // the last time the output pin was toggled
+long debounceDelay = 50;    // the debounce time; increase if the output flickers
+
 void setup() {
   //setup IO
-  myToggle.begin(TOGGLE);
   pinMode(FOOTSWITCH, INPUT_PULLUP);
+  pinMode(EFFECTSBUTTON, INPUT_PULLUP);
   pinMode(PUSHBUTTON_1, INPUT_PULLUP);
   pinMode(PUSHBUTTON_2, INPUT_PULLUP);
   pinMode(LED, OUTPUT);
@@ -90,46 +84,66 @@ void setup() {
   sei();                            // turn on interrupts - not really necessary with arduino
 }
 
-void loop() {
-  //Turn on the LED if the effect is ON.
-  if (digitalRead(FOOTSWITCH)) {
-    digitalWrite(LED, HIGH);
-    myToggle.poll();
-    if (myToggle.onPress()) {
-      effect++;
-      if (effect > max_effects) {
-        effect = 1;
-      }
+void swapEffect() {
+  static byte effects_btn_memory = 0;
+  // Check for keypress
+  if (!digitalRead(EFFECTSBUTTON)) {  // Pulled up so zero = pushed.
+
+    delay(100);
+
+    if (!digitalRead(EFFECTSBUTTON)) {  // if it is still pushed after a delay.
+      effects_btn_memory = !effects_btn_memory;
+
+      if (effects_btn_memory) {
+        digitalWrite(LED, HIGH);
+        effect = effect + 1;
+        if (effect > max_effects) effect = 1;  // loop back to 1st effect
+      } else digitalWrite(LED, LOW);
     }
-  } else {
-    digitalWrite(LED, LOW);
+    while (!digitalRead(EFFECTSBUTTON))
+      ;  // wait for low
+  }
+}
+
+void loop() {
+
+  // Start Loop on Footswitch
+  if (digitalRead(FOOTSWITCH)) {
+    //Turn on the LED if the effect is ON.
+    digitalWrite(LED, HIGH);
+
+    swapEffect();
   }
 }
 
 ISR(TIMER1_CAPT_vect) {
 
   switch (effect) {
-    case (1):  //VOLUME EFFECT
 
+    case 1:  // BOOSTER
       // get ADC data
       ADC_low = ADCL;  // you need to fetch the low byte first
       ADC_high = ADCH;
-
+      //construct the input sumple summing the ADC low and high byte.
       input = ((ADC_high << 8) | ADC_low) + 0x8000;  // make a signed 16b value
 
-      read_counter++;
+      //// All the Digital Signal Processing happens here: ////
+
+      read_counter++;  //to save resources, the pushbuttons are checked every 100 times.
       if (read_counter == 100) {
         read_counter = 0;
         if (!digitalRead(PUSHBUTTON_2)) {
-          if (vol_variable < 32768) vol_variable = vol_variable + 1;  //increase the volume
-          digitalWrite(LED, LOW);                                       //blinks the led
+          if (vol_variable < 32768) vol_variable = vol_variable + 10;  //increase the vol
+          digitalWrite(LED, LOW);                                      //blinks the led
         }
+
         if (!digitalRead(PUSHBUTTON_1)) {
-          if (vol_variable > 0) vol_variable = vol_variable - 1;  //decrease volume
-          digitalWrite(LED, LOW);                                   //blinks the led
+          if (vol_variable > 0) vol_variable = vol_variable - 10;  //decrease vol
+          digitalWrite(LED, LOW);                                  //blinks the led
         }
       }
 
+      //the amplitude of the input signal is modified following the vol_variable value
       input = map(input, -32768, +32768, -vol_variable, vol_variable);
 
       //write the PWM signal
@@ -137,15 +151,47 @@ ISR(TIMER1_CAPT_vect) {
       OCR1BL = input;                    // send out low byte
       break;
 
-    case (2):  //DAFT PUNK OCTAVER
+    case 2:  // BITCRUSHER
+
+      read_counter++;  //to save resources, the pushbuttons are checked every 10000 times.
+      if (read_counter == 10000) {
+        read_counter = 0;
+        if (!digitalRead(PUSHBUTTON_2)) {
+          if (bit_crush_variable < 16) bit_crush_variable = bit_crush_variable + 1;  //increase the vol
+          digitalWrite(LED, LOW);                                                    //blinks the led
+        }
+
+        if (!digitalRead(PUSHBUTTON_1)) {
+          if (bit_crush_variable > 0) bit_crush_variable = bit_crush_variable - 1;  //decrease vol
+          digitalWrite(LED, LOW);                                                   //blinks the led
+        }
+      }
+
+      // get ADC data
+      ADC_low = ADCL;  // you need to fetch the low byte first
+      ADC_high = ADCH;
+      //construct the input sumple summing the ADC low and high byte.
+      input = ((ADC_high << 8) | ADC_low) + 0x8000;  // make a signed 16b value
+
+      //// All the Digital Signal Processing happens here: ////
+      //The bit_crush_variable goes from 0 to 16 and the input signal is crushed in the next instruction:
+      input = input << bit_crush_variable;
+
+      //write the PWM signal
+      OCR1AL = ((input + 0x8000) >> 8);  // convert to unsigned, send out high byte
+      OCR1BL = input;                    // send out low byte
+
+      break;
+
+    case 3:  //DAFT PUNK OCTAVER
       read_counter++;
       if (read_counter == 2000) {
         read_counter = 0;
-        if (!digitalRead(PUSHBUTTON_2)) {  //increase the tremolo
+        if (!digitalRead(PUSHBUTTON_1)) {  //increase the tremolo
           if (dist_variable < 500) dist_variable = dist_variable + 1;
           digitalWrite(LED, LOW);  //blinks the led
         }
-        if (!digitalRead(PUSHBUTTON_1)) {
+        if (!digitalRead(PUSHBUTTON_2)) {
           if (dist_variable > 0) dist_variable = dist_variable - 1;
           digitalWrite(LED, LOW);  //blinks the led
         }
@@ -166,16 +212,7 @@ ISR(TIMER1_CAPT_vect) {
       }
       break;
 
-    case (3):  //TREMOLO EFFECT
-
-      // output the last value calculated
-      OCR1AL = ((data_buffer + 0x8000) >> 8);  // convert to unsigned, send out high byte
-      OCR1BL = data_buffer;                    // send out low byte
-
-      // get ADC data
-      byte temp1 = ADCL;                            // you need to fetch the low byte first
-      byte temp2 = ADCH;                            // yes it needs to be done this way
-      int input = ((temp2 << 8) | temp1) + 0x8000;  // make a signed 16b value
+    case 4:  //BETTER TREMOLO EFFECT
 
       read_counter++;
       if (read_counter == 1000) {
@@ -190,6 +227,16 @@ ISR(TIMER1_CAPT_vect) {
         }
       }
 
+      // output the last value calculated
+      OCR1AL = ((data_buffer + 0x8000) >> 8);  // convert to unsigned, send out high byte
+      OCR1BL = data_buffer;                    // send out low byte
+
+      // get ADC data
+      ADC_low = ADCL;  // you need to fetch the low byte first
+      ADC_high = ADCH;
+      //construct the input sumple summing the ADC low and high byte.
+      input = ((ADC_high << 8) | ADC_low) + 0x8000;  // make a signed 16b value
+
       fractional += speed;         // increment sinewave lookup counter
       if (fractional >= 0x0100) {  // if its large enough to go to next sample
         fractional &= 0x00ff;      // round off
@@ -203,10 +250,6 @@ ISR(TIMER1_CAPT_vect) {
       MultiSU16X16toH16(output, input, amplitude);
       // save value for playback next interrupt
       data_buffer = output;
-      break;
-
-    default:
-      effect = 1;
       break;
   }
 }

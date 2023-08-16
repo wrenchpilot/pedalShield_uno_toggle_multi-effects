@@ -1,7 +1,7 @@
 ```
-Multiple effects for pedalShieldUno using debounced toggle switch to 
-cycle through defined effects. Double flick the toggle to change effects.
+Multiple effects for pedalShieldUno using debounced button to cycle through defined effects.
 ```
-* BANK 1: Clean w/Volume Control
-* BANK 2: Daft Punk Octaver
-* BANK 3: Better Tremolo
+* BANK 1: Booster
+* BANK 2: Bitcrusher
+* BANK 3: Daft Punk Octaver
+* BANK 4: Better Tremello
